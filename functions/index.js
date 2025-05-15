@@ -206,6 +206,44 @@ app.post("/education", async (req, res) => {
   }
 });
 
+app.patch("/education/:id", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { level, institution, major, startDate, endDate, gpa } = req.body;
+    const educationId = req.params.id;
+
+    // Fetch the document from the Firestore collection
+    const educationRef = db.collection("users").doc(uid).collection("education").doc(educationId);
+    const educationDoc = await educationRef.get();
+
+    if (!educationDoc.exists) {
+      return res.status(404).json({ error: "Education document not found" });
+    }
+
+    // Prepare data to update
+    const updateData = {};
+    if (level) updateData.level = level;
+    if (institution) updateData.institution = institution;
+    if (major) updateData.major = major;
+    if (startDate) updateData.startDate = startDate;
+    if (endDate) updateData.endDate = endDate;
+    if (gpa) updateData.gpa = gpa;
+
+    updateData.updatedAt = FieldValue.serverTimestamp(); // Add updated timestamp
+
+    // Update the document in Firestore
+    await educationRef.update(updateData);
+
+    res.status(200).json({
+      message: "Education updated successfully",
+      updatedFields: updateData
+    });
+  } catch (err) {
+    console.error("Error updating education:", err);
+    res.status(500).json({ error: "Failed to update education", details: err.message });
+  }
+});
+
 app.post("/experience", async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -261,6 +299,45 @@ app.post("/experience", async (req, res) => {
   }
 });
 
+app.patch("/experience/:id", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { position, company, description, employmentType, startDate, endDate } = req.body;
+    const experienceId = req.params.id;
+
+    // Fetch the document from the Firestore collection
+    const experienceRef = db.collection("users").doc(uid).collection("experience").doc(experienceId);
+    const experienceDoc = await experienceRef.get();
+
+    if (!experienceDoc.exists) {
+      return res.status(404).json({ error: "Experience document not found" });
+    }
+
+    // Prepare data to update
+    const updateData = {};
+    if (position) updateData.position = position;
+    if (company) updateData.company = company;
+    if (description) updateData.description = description;
+    if (employmentType) updateData.employmentType = employmentType;
+    if (startDate) updateData.startDate = startDate;
+    if (endDate) updateData.endDate = endDate;
+
+    updateData.updatedAt = FieldValue.serverTimestamp(); // Add updated timestamp
+
+    // Update the document in Firestore
+    await experienceRef.update(updateData);
+
+    res.status(200).json({
+      message: "Experience updated successfully",
+      updatedFields: updateData
+    });
+  } catch (err) {
+    console.error("Error updating experience:", err);
+    res.status(500).json({ error: "Failed to update experience", details: err.message });
+  }
+});
+
+
 app.post("/skills", async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -311,6 +388,54 @@ app.post("/skills", async (req, res) => {
   }
 });
 
+app.patch("/skills", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { hardSkills, softSkills } = req.body;
+
+    const skillsRef = db.collection("users").doc(uid).collection("skills");
+
+    // Update hard skills if provided
+    if (hardSkills && Array.isArray(hardSkills)) {
+      const hardSkillsDocRef = skillsRef.doc("hard-skills");
+      for (const skill of hardSkills) {
+        const { id, name, level } = skill;  // Assuming 'id' is provided to update an existing skill
+        if (!id || !name || !level) {
+          return res.status(400).json({ error: "Each hard skill must have an id, name, and level" });
+        }
+        await hardSkillsDocRef.collection("hard-skills").doc(id).update({
+          name,
+          level,
+          updatedAt: FieldValue.serverTimestamp(),  // Add update timestamp
+        });
+      }
+    }
+
+    // Update soft skills if provided
+    if (softSkills && Array.isArray(softSkills)) {
+      const softSkillsDocRef = skillsRef.doc("soft-skills");
+      for (const skill of softSkills) {
+        const { id, name, level } = skill;  // Assuming 'id' is provided to update an existing skill
+        if (!id || !name || !level) {
+          return res.status(400).json({ error: "Each soft skill must have an id, name, and level" });
+        }
+        await softSkillsDocRef.collection("soft-skills").doc(id).update({
+          name,
+          level,
+          updatedAt: FieldValue.serverTimestamp(),  // Add update timestamp
+        });
+      }
+    }
+
+    res.status(200).json({ message: "Skills updated successfully" });
+
+  } catch (err) {
+    console.error("Error updating skills:", err);
+    res.status(500).json({ error: "Failed to update skills", details: err.message });
+  }
+});
+
+
 app.post("/portfolio", async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -347,6 +472,47 @@ app.post("/portfolio", async (req, res) => {
     res.status(500).json({ error: "Failed to add portfolio", details: err.message });
   }
 });
+
+app.patch("/portfolio", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { title, description, projectUrl, technologies } = req.body;
+
+    // Validating if title is provided as it is the document ID
+    if (!title) {
+      return res.status(400).json({ error: "Missing title to identify the portfolio document" });
+    }
+
+    // Fetch the portfolio document
+    const portfolioRef = db.collection("users").doc(uid).collection("portfolio").doc(title);
+    const portfolioDoc = await portfolioRef.get();
+
+    if (!portfolioDoc.exists) {
+      return res.status(404).json({ error: "Portfolio document not found" });
+    }
+
+    // Prepare update data
+    const updateData = {};
+    if (description) updateData.description = description;
+    if (projectUrl) updateData.projectUrl = projectUrl;
+    if (technologies && Array.isArray(technologies)) updateData.technologies = technologies;
+
+    updateData.updatedAt = FieldValue.serverTimestamp();  // Add update timestamp
+
+    // Update the portfolio document
+    await portfolioRef.update(updateData);
+
+    res.status(200).json({
+      message: "Portfolio updated successfully",
+      updatedFields: updateData,
+    });
+
+  } catch (err) {
+    console.error("Error updating portfolio:", err);
+    res.status(500).json({ error: "Failed to update portfolio", details: err.message });
+  }
+});
+
 
 app.post("/preferences", async (req, res) => {
   try {
@@ -391,6 +557,48 @@ app.post("/preferences", async (req, res) => {
     res.status(500).json({ error: "Failed to add preferences", details: err.message });
   }
 });
+
+app.patch("/preferences", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { jobCategories, locations, salaryExpectation, jobTypes } = req.body;
+
+    // Fetch the existing preferences document
+    const preferencesRef = db.collection("users").doc(uid).collection("preferences");
+    const preferencesDoc = await preferencesRef.get();
+
+    if (preferencesDoc.empty) {
+      return res.status(404).json({ error: "Preferences document not found" });
+    }
+
+    // Prepare update data
+    const updateData = {};
+
+    if (jobCategories && Array.isArray(jobCategories)) updateData.jobCategories = jobCategories;
+    if (locations && Array.isArray(locations)) updateData.locations = locations;
+    if (salaryExpectation) updateData.salaryExpectation = salaryExpectation;
+    if (jobTypes && Array.isArray(jobTypes)) updateData.jobTypes = jobTypes;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+
+    updateData.updatedAt = FieldValue.serverTimestamp();  // Update timestamp
+
+    // Update preferences document
+    await preferencesRef.doc("user-preferences").update(updateData);
+
+    res.status(200).json({
+      message: "Preferences updated successfully",
+      updatedFields: updateData
+    });
+
+  } catch (err) {
+    console.error("Error updating preferences:", err);
+    res.status(500).json({ error: "Failed to update preferences", details: err.message });
+  }
+});
+
 
 app.post('/uploadDocument', async (req, res) => {
   try {
@@ -437,6 +645,61 @@ app.post('/uploadDocument', async (req, res) => {
   } catch (err) {
     console.error("Error uploading document:", err);
     res.status(500).json({ error: "Failed to upload document", details: err.message });
+  }
+});
+
+app.patch('/uploadDocument', async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { documentId, base64String, type } = req.body;
+
+    if (!documentId || !base64String || !type) {
+      return res.status(400).json({ error: "documentId, file and type are required" });
+    }
+
+    // Decode the Base64 string
+    const buffer = Buffer.from(base64String, 'base64');
+
+    const fileName = `documents/${uid}-${Date.now()}.pdf`; // Assuming PDF for simplicity
+    const bucketFile = bucket.file(fileName);
+
+    // Upload to Firebase Storage
+    await bucketFile.save(buffer, {
+      metadata: {
+        contentType: 'application/pdf' // Adjust content type as needed
+      },
+      public: true // Make it publicly accessible
+    });
+
+    // Get the public URL
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(fileName)}`;
+
+    // Update the document details in Firestore
+    const documentRef = db.collection("users").doc(uid).collection("documents").doc(documentId);
+    const documentSnap = await documentRef.get();
+
+    if (!documentSnap.exists) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    const updateData = {
+      type,
+      fileUrl: publicUrl,
+      updatedAt: FieldValue.serverTimestamp() // Use server timestamp
+    };
+
+    // Update the document in Firestore
+    await documentRef.update(updateData);
+
+    res.json({
+      message: "Document updated successfully",
+      documentId: documentRef.id,
+      fileUrl: publicUrl
+    });
+
+  } catch (err) {
+    console.error("Error updating document:", err);
+    res.status(500).json({ error: "Failed to update document", details: err.message });
   }
 });
 

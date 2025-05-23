@@ -244,6 +244,32 @@ app.patch("/education/:id", async (req, res) => {
   }
 });
 
+app.get("/education", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    const educationRef = db.collection("users").doc(uid).collection("education");
+    const snapshot = await educationRef.orderBy("startDate", "desc").get();
+
+    if (snapshot.empty) {
+      return res.status(200).json({ education: [] }); // Jika tidak ada data pendidikan
+    }
+
+    // Mapping data ke array
+    const educationList = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.status(200).json({ education: educationList });
+
+  } catch (err) {
+    console.error("Error getting education:", err);
+    res.status(500).json({ error: "Failed to get education", details: err.message });
+  }
+});
+
+
 app.post("/experience", async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -337,6 +363,29 @@ app.patch("/experience/:id", async (req, res) => {
   }
 });
 
+app.get("/experience", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    const experienceRef = db.collection("users").doc(uid).collection("experience");
+    const snapshot = await experienceRef.orderBy("startDate", "desc").get();
+
+    if (snapshot.empty) {
+      return res.status(200).json({ experience: [] });
+    }
+
+    const experienceList = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.status(200).json({ experience: experienceList });
+
+  } catch (err) {
+    console.error("Error getting experience:", err);
+    res.status(500).json({ error: "Failed to get experience", details: err.message });
+  }
+});
 
 app.post("/skills", async (req, res) => {
   try {
@@ -435,6 +484,37 @@ app.patch("/skills", async (req, res) => {
   }
 });
 
+app.get("/skills", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const skillsRef = db.collection("users").doc(uid).collection("skills");
+
+    // Ambil hard skills
+    const hardSkillsDoc = await skillsRef.doc("hard-skills").get();
+    let hardSkills = [];
+    if (hardSkillsDoc.exists) {
+      const hardSkillsSnapshot = await skillsRef.doc("hard-skills").collection("hard-skills").get();
+      hardSkills = hardSkillsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    // Ambil soft skills
+    const softSkillsDoc = await skillsRef.doc("soft-skills").get();
+    let softSkills = [];
+    if (softSkillsDoc.exists) {
+      const softSkillsSnapshot = await skillsRef.doc("soft-skills").collection("soft-skills").get();
+      softSkills = softSkillsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    res.status(200).json({
+      hardSkills,
+      softSkills
+    });
+
+  } catch (err) {
+    console.error("Error getting skills:", err);
+    res.status(500).json({ error: "Failed to get skills", details: err.message });
+  }
+});
 
 app.post("/portfolio", async (req, res) => {
   try {
@@ -513,6 +593,30 @@ app.patch("/portfolio", async (req, res) => {
   }
 });
 
+app.get("/portfolio", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    const portfolioRef = db.collection("users").doc(uid).collection("portfolio");
+    const snapshot = await portfolioRef.get();
+
+    if (snapshot.empty) {
+      return res.status(200).json({ portfolio: [] });
+    }
+
+    // Mapping setiap dokumen ke objek dengan id (title) dan data
+    const portfolioList = snapshot.docs.map(doc => ({
+      id: doc.id,     // Karena kamu pakai title sebagai document ID
+      ...doc.data(),
+    }));
+
+    res.status(200).json({ portfolio: portfolioList });
+
+  } catch (err) {
+    console.error("Error getting portfolio:", err);
+    res.status(500).json({ error: "Failed to get portfolio", details: err.message });
+  }
+});
 
 app.post("/preferences", async (req, res) => {
   try {
@@ -599,8 +703,27 @@ app.patch("/preferences", async (req, res) => {
   }
 });
 
+app.get("/preferences", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const preferencesRef = db.collection("users").doc(uid).collection("preferences").doc("user-preferences");
+    const doc = await preferencesRef.get();
 
-app.post('/uploadDocument', async (req, res) => {
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Preferences not found" });
+    }
+
+    res.status(200).json({ preferences: doc.data() });
+
+  } catch (err) {
+    console.error("Error getting preferences:", err);
+    res.status(500).json({ error: "Failed to get preferences", details: err.message });
+  }
+});
+
+
+
+app.post('/upload-document', async (req, res) => {
   try {
     const uid = req.user.uid;
     const base64String = req.body.file;
@@ -648,7 +771,7 @@ app.post('/uploadDocument', async (req, res) => {
   }
 });
 
-app.patch('/uploadDocument', async (req, res) => {
+app.patch('/upload-document', async (req, res) => {
   try {
     const uid = req.user.uid;
     const { documentId, base64String, type } = req.body;
@@ -700,6 +823,30 @@ app.patch('/uploadDocument', async (req, res) => {
   } catch (err) {
     console.error("Error updating document:", err);
     res.status(500).json({ error: "Failed to update document", details: err.message });
+  }
+});
+
+app.get("/upload-document", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    const documentsRef = db.collection("users").doc(uid).collection("documents");
+    const snapshot = await documentsRef.orderBy("uploadedAt", "desc").get();
+
+    if (snapshot.empty) {
+      return res.status(200).json({ documents: [] });
+    }
+
+    const documents = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.status(200).json({ documents });
+
+  } catch (err) {
+    console.error("Error getting documents:", err);
+    res.status(500).json({ error: "Failed to get documents", details: err.message });
   }
 });
 

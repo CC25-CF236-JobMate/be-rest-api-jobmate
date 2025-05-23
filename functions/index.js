@@ -387,7 +387,67 @@ app.get("/experience", async (req, res) => {
   }
 });
 
+app.get("/skills", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const userRef = db.collection("users").doc(uid);
+
+    const hardSkillsSnap = await userRef.collection("hard-skills").get();
+    const hardSkills = hardSkillsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    const softSkillsSnap = await userRef.collection("soft-skills").get();
+    const softSkills = softSkillsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    res.status(200).json({ hardSkills, softSkills });
+  } catch (err) {
+    console.error("Error getting skills:", err);
+    res.status(500).json({ error: "Failed to get skills", details: err.message });
+  }
+});
+
+// POST /skills - tambahkan skill baru (bisa banyak sekaligus)
 app.post("/skills", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { hardSkills, softSkills } = req.body;
+
+    if ((!hardSkills || !Array.isArray(hardSkills)) && (!softSkills || !Array.isArray(softSkills))) {
+      return res.status(400).json({ error: "At least one of hardSkills or softSkills must be a non-empty array" });
+    }
+
+    const userRef = db.collection("users").doc(uid);
+
+    if (hardSkills && Array.isArray(hardSkills)) {
+      const hardSkillsCol = userRef.collection("hard-skills");
+      const addHardPromises = hardSkills.map(skill => {
+        if (!skill.name || !skill.level) {
+          throw new Error("Each hard skill must have a name and level");
+        }
+        return hardSkillsCol.add({ name: skill.name, level: skill.level });
+      });
+      await Promise.all(addHardPromises);
+    }
+
+    if (softSkills && Array.isArray(softSkills)) {
+      const softSkillsCol = userRef.collection("soft-skills");
+      const addSoftPromises = softSkills.map(skill => {
+        if (!skill.name || !skill.level) {
+          throw new Error("Each soft skill must have a name and level");
+        }
+        return softSkillsCol.add({ name: skill.name, level: skill.level });
+      });
+      await Promise.all(addSoftPromises);
+    }
+
+    res.status(201).json({ message: "Skills added successfully" });
+  } catch (err) {
+    console.error("Error adding skills:", err);
+    res.status(500).json({ error: "Failed to add skills", details: err.message });
+  }
+});
+
+// PATCH /skills - update skill yang sudah ada berdasarkan id
+app.patch("/skills", async (req, res) => {
   try {
     const uid = req.user.uid;
     const { hardSkills, softSkills } = req.body;
@@ -396,123 +456,40 @@ app.post("/skills", async (req, res) => {
       return res.status(400).json({ error: "At least one of hardSkills or softSkills must be provided" });
     }
 
-    // Create a new skill document under the 'skills' sub-collection
-    const skillsRef = db.collection("users").doc(uid).collection("skills");
+    const userRef = db.collection("users").doc(uid);
 
-    // If hardSkills is provided, add them
     if (hardSkills && Array.isArray(hardSkills)) {
-      const hardSkillsDocRef = skillsRef.doc("hard-skills");
       for (const skill of hardSkills) {
-        const { name, level } = skill;
-        if (!name || !level) {
-          return res.status(400).json({ error: "Each hard skill must have a name and level" });
-        }
-        await hardSkillsDocRef.collection("hard-skills").add({
-          name,
-          level,
-        });
-      }
-    }
-
-    // If softSkills is provided, add them
-    if (softSkills && Array.isArray(softSkills)) {
-      const softSkillsDocRef = skillsRef.doc("soft-skills");
-      for (const skill of softSkills) {
-        const { name, level } = skill;
-        if (!name || !level) {
-          return res.status(400).json({ error: "Each soft skill must have a name and level" });
-        }
-        await softSkillsDocRef.collection("soft-skills").add({
-          name,
-          level,
-        });
-      }
-    }
-
-    res.status(201).json({ message: "Skills added successfully" });
-
-  } catch (err) {
-    console.error("Error adding skills:", err);
-    res.status(500).json({ error: "Failed to add skills", details: err.message });
-  }
-});
-
-app.patch("/skills", async (req, res) => {
-  try {
-    const uid = req.user.uid;
-    const { hardSkills, softSkills } = req.body;
-
-    const skillsRef = db.collection("users").doc(uid).collection("skills");
-
-    // Update hard skills if provided
-    if (hardSkills && Array.isArray(hardSkills)) {
-      const hardSkillsDocRef = skillsRef.doc("hard-skills");
-      for (const skill of hardSkills) {
-        const { id, name, level } = skill;  // Assuming 'id' is provided to update an existing skill
+        const { id, name, level } = skill;
         if (!id || !name || !level) {
-          return res.status(400).json({ error: "Each hard skill must have an id, name, and level" });
+          return res.status(400).json({ error: "Each hard skill must have id, name, and level" });
         }
-        await hardSkillsDocRef.collection("hard-skills").doc(id).update({
+        await userRef.collection("hard-skills").doc(id).update({
           name,
           level,
-          updatedAt: FieldValue.serverTimestamp(),  // Add update timestamp
+          updatedAt: FieldValue.serverTimestamp(),
         });
       }
     }
 
-    // Update soft skills if provided
     if (softSkills && Array.isArray(softSkills)) {
-      const softSkillsDocRef = skillsRef.doc("soft-skills");
       for (const skill of softSkills) {
-        const { id, name, level } = skill;  // Assuming 'id' is provided to update an existing skill
+        const { id, name, level } = skill;
         if (!id || !name || !level) {
-          return res.status(400).json({ error: "Each soft skill must have an id, name, and level" });
+          return res.status(400).json({ error: "Each soft skill must have id, name, and level" });
         }
-        await softSkillsDocRef.collection("soft-skills").doc(id).update({
+        await userRef.collection("soft-skills").doc(id).update({
           name,
           level,
-          updatedAt: FieldValue.serverTimestamp(),  // Add update timestamp
+          updatedAt: FieldValue.serverTimestamp(),
         });
       }
     }
 
     res.status(200).json({ message: "Skills updated successfully" });
-
   } catch (err) {
     console.error("Error updating skills:", err);
     res.status(500).json({ error: "Failed to update skills", details: err.message });
-  }
-});
-
-app.get("/skills", async (req, res) => {
-  try {
-    const uid = req.user.uid;
-    const skillsRef = db.collection("users").doc(uid).collection("skills");
-
-    // Ambil hard skills
-    const hardSkillsDoc = await skillsRef.doc("hard-skills").get();
-    let hardSkills = [];
-    if (hardSkillsDoc.exists) {
-      const hardSkillsSnapshot = await skillsRef.doc("hard-skills").collection("hard-skills").get();
-      hardSkills = hardSkillsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    }
-
-    // Ambil soft skills
-    const softSkillsDoc = await skillsRef.doc("soft-skills").get();
-    let softSkills = [];
-    if (softSkillsDoc.exists) {
-      const softSkillsSnapshot = await skillsRef.doc("soft-skills").collection("soft-skills").get();
-      softSkills = softSkillsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    }
-
-    res.status(200).json({
-      hardSkills,
-      softSkills
-    });
-
-  } catch (err) {
-    console.error("Error getting skills:", err);
-    res.status(500).json({ error: "Failed to get skills", details: err.message });
   }
 });
 

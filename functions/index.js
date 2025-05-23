@@ -76,31 +76,31 @@ app.get("/profile", async (req, res) => {
   }
 });
 
-app.put("/profile", async (req, res) => {
+app.patch("/profile", async (req, res) => {
   try {
     const uid = req.user.uid;
     const data = {};
 
     // Handle regular fields
-    ["fullname", "phoneNumber", "city"].forEach((field) => {
+    ["fullName", "phoneNumber", "city", "linkedin", "github", "instagram", "portfolioSite"].forEach((field) => {
       if (req.body[field] !== undefined) {
         data[field] = req.body[field];
       }
     });
 
-    // Handle base64 photo if exists (simpan sebagai photoUrl)
+    // Handle base64 photo if exists (save as photoUrl)
     if (req.body.photoUrl) {
-      // Validasi format base64 image
+      // Validate base64 image format
       const matches = req.body.photoUrl.match(/^data:image\/([a-zA-Z]+);base64,(.+)$/);
       if (!matches || matches.length !== 3) {
         return res.status(400).json({ error: "Invalid base64 image format" });
       }
 
       const imageType = matches[1]; // jpeg, png, etc.
-      const base64Data = matches[2]; // data setelah prefix
-      const imageBuffer = Buffer.from(base64Data, 'base64');
+      const base64Data = matches[2]; // data after prefix
+      const imageBuffer = Buffer.from(base64Data, "base64");
 
-      // Validasi ukuran file (max 5MB)
+      // Validate file size (max 5MB)
       if (imageBuffer.length > 5 * 1024 * 1024) {
         return res.status(400).json({ error: "Image too large (max 5MB)" });
       }
@@ -108,30 +108,34 @@ app.put("/profile", async (req, res) => {
       const fileName = `profile-photos/${uid}-${Date.now()}.${imageType}`;
       const file = bucket.file(fileName);
 
-      // Upload ke Firebase Storage
+      // Upload to Firebase Storage
       await file.save(imageBuffer, {
         metadata: {
-          contentType: `image/${imageType}`
+          contentType: `image/${imageType}`,
         },
-        public: true // Jika ingin langsung bisa diakses
+        public: true,
       });
 
-      // Dapatkan URL publik
+      // Get public URL
       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(fileName)}`;
       data.photoUrl = publicUrl;
 
-      // Hapus foto lama jika ada
-      const userDoc = await db.collection("users").doc(uid).collection("user_personal").doc("info").get();
+      // Delete old photo if exists
+      const userDoc = await db
+        .collection("users")
+        .doc(uid)
+        .collection("user_personal")
+        .doc("info")
+        .get();
+
       if (userDoc.exists && userDoc.data().photoUrl) {
         try {
           const oldPhotoUrl = userDoc.data().photoUrl;
-          const oldFilePath = decodeURIComponent(
-            oldPhotoUrl.split("/o/")[1].split("?")[0]
-          );
+          const oldFilePath = decodeURIComponent(oldPhotoUrl.split("/o/")[1].split("?")[0]);
           await bucket.file(oldFilePath).delete();
         } catch (err) {
           console.error("Error deleting old photo:", err);
-          // Tidak menghentikan proses jika gagal hapus foto lama
+          // Don't stop process if delete fails
         }
       }
     }
@@ -140,22 +144,23 @@ app.put("/profile", async (req, res) => {
       return res.status(400).json({ error: "No valid fields to update" });
     }
 
-    // Update sub-koleksi user_personal/info
+    // Update subcollection user_personal/info
     await db.collection("users").doc(uid).collection("user_personal").doc("info").update(data);
-    res.json({ 
+
+    res.json({
       message: "Profile updated successfully",
       updatedFields: Object.keys(data),
-      photoUrl: data.photoUrl || null
+      photoUrl: data.photoUrl || null,
     });
-
   } catch (err) {
     console.error("Error updating profile:", err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Failed to update profile",
-      details: err.message 
+      details: err.message,
     });
   }
 });
+
 
 app.post("/education", async (req, res) => {
   try {

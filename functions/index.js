@@ -161,6 +161,41 @@ app.patch("/profile", async (req, res) => {
   }
 });
 
+app.delete("/profile/photo", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    // Ambil dokumen profil user
+    const userDocRef = db.collection("users").doc(uid).collection("user_personal").doc("info");
+    const userDoc = await userDocRef.get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    const photoUrl = userDoc.data().photoUrl;
+    if (!photoUrl) {
+      return res.status(400).json({ error: "No profile photo to delete" });
+    }
+
+    // Extract file path dari URL Firebase Storage
+    // Contoh URL: https://storage.googleapis.com/{bucket.name}/profile-photos/uid-timestamp.jpg
+    // File path yang dihapus adalah "profile-photos/uid-timestamp.jpg"
+    const filePath = decodeURIComponent(photoUrl.split(`https://storage.googleapis.com/${bucket.name}/`)[1]);
+
+    // Hapus file dari Firebase Storage
+    await bucket.file(filePath).delete();
+
+    // Hapus field photoUrl di Firestore (set ke null atau hapus)
+    await userDocRef.update({ photoUrl: null });
+
+    res.json({ message: "Profile photo deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting profile photo:", err);
+    res.status(500).json({ error: "Failed to delete profile photo" });
+  }
+});
+
 
 app.post("/education", async (req, res) => {
   try {
@@ -271,6 +306,28 @@ app.get("/education", async (req, res) => {
   } catch (err) {
     console.error("Error getting education:", err);
     res.status(500).json({ error: "Failed to get education", details: err.message });
+  }
+});
+
+app.delete("/education/:id", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const educationId = req.params.id;
+
+    const educationRef = db.collection("users").doc(uid).collection("education").doc(educationId);
+    const educationDoc = await educationRef.get();
+
+    if (!educationDoc.exists) {
+      return res.status(404).json({ error: "Education document not found" });
+    }
+
+    // Hapus dokumen pendidikan
+    await educationRef.delete();
+
+    res.status(200).json({ message: "Education deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting education:", err);
+    res.status(500).json({ error: "Failed to delete education", details: err.message });
   }
 });
 
@@ -392,6 +449,29 @@ app.get("/experience", async (req, res) => {
   }
 });
 
+app.delete("/experience/:id", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const experienceId = req.params.id;
+
+    const experienceRef = db.collection("users").doc(uid).collection("experience").doc(experienceId);
+    const experienceDoc = await experienceRef.get();
+
+    if (!experienceDoc.exists) {
+      return res.status(404).json({ error: "Experience document not found" });
+    }
+
+    // Hapus dokumen experience
+    await experienceRef.delete();
+
+    res.status(200).json({ message: "Experience deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting experience:", err);
+    res.status(500).json({ error: "Failed to delete experience", details: err.message });
+  }
+});
+
+
 app.get("/skills", async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -498,6 +578,36 @@ app.patch("/skills", async (req, res) => {
   }
 });
 
+app.delete("/skills", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { hardSkillIds, softSkillIds } = req.body;
+
+    if ((!hardSkillIds || !Array.isArray(hardSkillIds)) && (!softSkillIds || !Array.isArray(softSkillIds))) {
+      return res.status(400).json({ error: "At least one of hardSkillIds or softSkillIds must be a non-empty array" });
+    }
+
+    const userRef = db.collection("users").doc(uid);
+
+    if (hardSkillIds && Array.isArray(hardSkillIds)) {
+      const hardSkillsCol = userRef.collection("hard-skills");
+      const deleteHardPromises = hardSkillIds.map(id => hardSkillsCol.doc(id).delete());
+      await Promise.all(deleteHardPromises);
+    }
+
+    if (softSkillIds && Array.isArray(softSkillIds)) {
+      const softSkillsCol = userRef.collection("soft-skills");
+      const deleteSoftPromises = softSkillIds.map(id => softSkillsCol.doc(id).delete());
+      await Promise.all(deleteSoftPromises);
+    }
+
+    res.status(200).json({ message: "Skills deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting skills:", err);
+    res.status(500).json({ error: "Failed to delete skills", details: err.message });
+  }
+});
+
 app.post("/portfolio", async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -599,6 +709,29 @@ app.get("/portfolio", async (req, res) => {
     res.status(500).json({ error: "Failed to get portfolio", details: err.message });
   }
 });
+
+app.delete("/portfolio/:title", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const title = req.params.title;
+
+    const portfolioRef = db.collection("users").doc(uid).collection("portfolio").doc(title);
+    const portfolioDoc = await portfolioRef.get();
+
+    if (!portfolioDoc.exists) {
+      return res.status(404).json({ error: "Portfolio document not found" });
+    }
+
+    // Hapus dokumen portfolio
+    await portfolioRef.delete();
+
+    res.status(200).json({ message: "Portfolio deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting portfolio:", err);
+    res.status(500).json({ error: "Failed to delete portfolio", details: err.message });
+  }
+});
+
 
 app.post("/preferences", async (req, res) => {
   try {
@@ -831,6 +964,42 @@ app.get("/upload-document", async (req, res) => {
     res.status(500).json({ error: "Failed to get documents", details: err.message });
   }
 });
+
+app.delete("/upload-document/:documentId", async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const documentId = req.params.documentId;
+
+    const documentRef = db.collection("users").doc(uid).collection("documents").doc(documentId);
+    const documentSnap = await documentRef.get();
+
+    if (!documentSnap.exists) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    const fileUrl = documentSnap.data().fileUrl;
+    if (fileUrl) {
+      try {
+        // Extract file path from public URL
+        // URL format: https://storage.googleapis.com/{bucket.name}/documents/uid-timestamp.pdf
+        const filePath = decodeURIComponent(fileUrl.split(`https://storage.googleapis.com/${bucket.name}/`)[1]);
+        await bucket.file(filePath).delete();
+      } catch (err) {
+        console.error("Error deleting file from storage:", err);
+        // Don't block delete if storage delete fails
+      }
+    }
+
+    // Delete document reference from Firestore
+    await documentRef.delete();
+
+    res.status(200).json({ message: "Document deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting document:", err);
+    res.status(500).json({ error: "Failed to delete document", details: err.message });
+  }
+});
+
 
 // Deploy sebagai one-off Cloud Function
 exports.app = functions.https.onRequest(app);

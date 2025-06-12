@@ -56,7 +56,219 @@ function cleanDescription(description) {
   return description.replace(/[^a-zA-Z0-9\s]/g, "").toLowerCase();
 }
 
-// POST /jobs - Tambah beberapa lowongan pekerjaan sekaligus
+// POST /companies - tambah company baru
+app.post("/companies", async (req, res) => {
+  try {
+    const companies = req.body;
+
+    if (!Array.isArray(companies) || companies.length === 0) {
+      return res.status(400).json({ error: "Request must contain an array of companies" });
+    }
+
+    const companyRef = db.collection("companies");
+
+    const promises = companies.map(async (company) => {
+      const {
+        companyName,
+        city,
+        aboutCompany,
+        website,
+        industry,
+        email,
+        phone,
+      } = company;
+
+      if (!companyName || !city || !aboutCompany) {
+        throw new Error("Missing required fields in one of the companies");
+      }
+
+      const companyData = {
+        companyName,
+        companyNameLowercase: companyName.toLowerCase(),
+        city,
+        aboutCompany,
+        activeJobCount: 0, // default
+        createdAt: FieldValue.serverTimestamp(),
+      };
+
+      if (website) companyData.website = website;
+      if (industry) companyData.industry = industry;
+      if (email) companyData.email = email;
+      if (phone) companyData.phone = phone;
+
+      return companyRef.add(companyData);
+    });
+
+    await Promise.all(promises);
+
+    res.status(201).json({ message: "Companies added successfully" });
+  } catch (err) {
+    console.error("Error adding companies:", err);
+    res.status(500).json({ error: "Failed to add companies", details: err.message });
+  }
+});
+
+
+
+app.post("/companies/updateActiveJobCount", async (req, res) => {
+  try {
+    const companyRef = db.collection("companies");
+    const jobRef = db.collection("jobs");
+
+    const companySnapshot = await companyRef.get();
+
+    // Karena batch max 500 operasi, kita bisa batch per 500 update, 
+    // tapi untuk simplicity ini contoh sekali batch (asumsi < 500 company)
+    const batch = db.batch();
+
+    let updateCount = 0;
+
+    for (const doc of companySnapshot.docs) {
+      const companyData = doc.data();
+
+      // Hitung jumlah job aktif berdasarkan companyName
+      const jobsSnapshot = await jobRef
+        .where("companyName", "==", companyData.companyName)
+        .where("isActive", "==", true)
+        .get();
+
+      const activeJobCount = jobsSnapshot.size;
+
+      // Update field activeJobCount
+      batch.update(companyRef.doc(doc.id), { activeJobCount });
+      updateCount++;
+    }
+
+    if (updateCount > 0) {
+      await batch.commit();
+    }
+
+    res.status(200).json({
+      message: `Updated activeJobCount for ${updateCount} companies.`,
+    });
+  } catch (err) {
+    console.error("Error updating activeJobCount:", err);
+    res.status(500).json({ error: "Failed to update activeJobCount", details: err.message });
+  }
+});
+
+
+// PATCH /companies/:id - update company
+app.patch("/companies/:id", async (req, res) => {
+  try {
+    const companyId = req.params.id;
+    const updates = req.body;
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No data provided to update" });
+    }
+
+    const companyRef = db.collection("companies").doc(companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return res.status(404).json({ error: "Company not found" });
+    }
+
+    await companyRef.update(updates);
+
+    res.status(200).json({ message: "Company updated successfully" });
+  } catch (err) {
+    console.error("Error updating company:", err);
+    res.status(500).json({ error: "Failed to update company", details: err.message });
+  }
+});
+
+// DELETE /companies/:id - hapus company
+app.delete("/companies/:id", async (req, res) => {
+  try {
+    const companyId = req.params.id;
+    const companyRef = db.collection("companies").doc(companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return res.status(404).json({ error: "Company not found" });
+    }
+
+    await companyRef.delete();
+
+    res.status(200).json({ message: "Company deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting company:", err);
+    res.status(500).json({ error: "Failed to delete company", details: err.message });
+  }
+});
+
+// GET /companies - list all companies langsung ambil activeJobCount dari doc
+app.get("/companies", async (req, res) => {
+  try {
+    const companySnapshot = await db.collection("companies").get();
+
+    const companies = companySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(), // sudah termasuk activeJobCount
+    }));
+
+    res.status(200).json({ companies });
+  } catch (err) {
+    console.error("Error getting companies:", err);
+    res.status(500).json({ error: "Failed to get companies", details: err.message });
+  }
+});
+
+// GET /companiesFilter - filter by city dan minActiveJobCount
+app.get("/companiesFilter", async (req, res) => {
+  try {
+    const { city, minActiveJobCount } = req.query;
+
+    let query = db.collection("companies");
+
+    if (city) {
+      query = query.where("city", "==", city);
+    }
+
+    if (minActiveJobCount) {
+      query = query.where("activeJobCount", ">=", Number(minActiveJobCount));
+    }
+
+    const snapshot = await query.get();
+
+    const companies = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.status(200).json({ companies });
+  } catch (err) {
+    console.error("Error getting companies with filter:", err, err.stack);
+    res.status(500).json({ error: "Failed to get companies", details: err.message, stack: err.stack });
+  }
+});
+
+
+// GET /companies/:id/detail - detail company dengan activeJobCount dari doc
+app.get("/companies/:id/detail", async (req, res) => {
+  try {
+    const companyId = req.params.id;
+    const companyRef = db.collection("companies").doc(companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return res.status(404).json({ error: "Company not found" });
+    }
+
+    const companyData = companyDoc.data();
+
+    res.status(200).json({
+      id: companyDoc.id,
+      ...companyData, // sudah termasuk activeJobCount
+    });
+  } catch (err) {
+    console.error("Error getting company detail:", err);
+    res.status(500).json({ error: "Failed to get company detail", details: err.message });
+  }
+});
+
 app.post("/jobs", async (req, res) => {
   try {
     const jobs = req.body;
@@ -66,13 +278,13 @@ app.post("/jobs", async (req, res) => {
     }
 
     const jobRef = db.collection("jobs");
+    const companyRef = db.collection("companies");
 
     const jobPromises = jobs.map(async (job) => {
       const {
         jobTitle,
         jobDescription,
-        companyName,
-        location,
+        companyId,
         category,
         jobType,
         skillsRequired,
@@ -85,23 +297,31 @@ app.post("/jobs", async (req, res) => {
       if (
         !jobTitle ||
         !jobDescription ||
-        !companyName ||
-        !location ||
+        !companyId ||
         !category ||
         !jobType ||
         !skillsRequired
       ) {
         throw new Error(
-          "Missing required fields (jobTitle, jobDescription, companyName, location, category, jobType, skillsRequired)"
+          "Missing required fields (jobTitle, jobDescription, companyId, category, jobType, skillsRequired)"
         );
       }
 
+      const companyDoc = await companyRef.doc(companyId).get();
+      if (!companyDoc.exists) {
+        throw new Error(`Company with id ${companyId} not found`);
+      }
+      const companyData = companyDoc.data();
+
       const jobData = {
         jobTitle,
+        jobTitleLowercase: jobTitle.toLowerCase(),
         jobDescription,
         cleanedDescription: cleanDescription(jobDescription),
-        companyName,
-        location,
+        companyName: companyData.companyName,
+        companyNameLowercase: companyData.companyName.toLowerCase(),
+        city: companyData.city,
+        aboutCompany: companyData.aboutCompany || "",
         category,
         jobType,
         skillsRequired: Array.isArray(skillsRequired) ? skillsRequired : [],
@@ -119,19 +339,20 @@ app.post("/jobs", async (req, res) => {
 
     await Promise.all(jobPromises);
 
-    res.status(201).json({
-      message: "Jobs added successfully",
-    });
+    res.status(201).json({ message: "Jobs added successfully" });
   } catch (err) {
     console.error("Error adding jobs:", err);
     res.status(500).json({ error: "Failed to add jobs", details: err.message });
   }
 });
 
-// GET /jobs - Ambil daftar pekerjaan dengan filter kategori dan gaji
+
+
+// GET /jobs - Mendapatkan daftar pekerjaan dengan filter dan pagination, support partial search (prefix)
 app.get("/jobs", async (req, res) => {
   try {
-    const { category, location, minSalary, maxSalary, limit = 20, lastDocId } = req.query;
+    const { category, location, minSalary, maxSalary, lastDocId, companyName, city, jobTitle } = req.query;
+
     let query = db.collection("jobs").where("isActive", "==", true);
 
     if (category) {
@@ -147,8 +368,27 @@ app.get("/jobs", async (req, res) => {
       query = query.where("salary.max", "<=", Number(maxSalary));
     }
 
-    query = query.orderBy("postedAt", "desc").limit(parseInt(limit));
+    // ==== Prefix Search untuk companyName ====
+    if (companyName) {
+      query = query.orderBy("companyName").startAt(companyName).endAt(companyName + '\uf8ff');
+    }
 
+    // ==== Prefix Search untuk city ====
+    else if (city) {
+      query = query.orderBy("city").startAt(city).endAt(city + '\uf8ff');
+    }
+
+    // ==== Prefix Search untuk jobTitle ====
+    else if (jobTitle) {
+      query = query.orderBy("jobTitle").startAt(jobTitle).endAt(jobTitle + '\uf8ff');
+    }
+
+    // Urutkan hasil kalau tidak ada search awalan
+    if (!companyName && !city && !jobTitle) {
+      query = query.orderBy("postedAt", "desc");
+    }
+
+    // Pagination jika ada lastDocId
     if (lastDocId) {
       const lastDoc = await db.collection("jobs").doc(lastDocId).get();
       if (lastDoc.exists) {
@@ -158,7 +398,7 @@ app.get("/jobs", async (req, res) => {
 
     const snapshot = await query.get();
 
-    const jobs = snapshot.docs.map((doc) => ({
+    const jobs = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
     }));
@@ -170,7 +410,28 @@ app.get("/jobs", async (req, res) => {
   }
 });
 
-// GET /jobs/:id - Detail pekerjaan berdasarkan jobId
+
+
+app.get("/jobs/recent", async (req, res) => {
+  try {
+    const snapshot = await db.collection("jobs")
+      .where("isActive", "==", true)
+      .orderBy("postedAt", "desc")
+      .limit(3)
+      .get();
+
+    const jobs = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.status(200).json({ jobs });
+  } catch (err) {
+    console.error("Error getting recent jobs:", err);
+    res.status(500).json({ error: "Failed to get recent jobs", details: err.message });
+  }
+});
+// GET /jobs/:id - Mendapatkan detail pekerjaan berdasarkan jobId
 app.get("/jobs/:id", async (req, res) => {
   try {
     const jobId = req.params.id;
@@ -186,6 +447,10 @@ app.get("/jobs/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to get job details", details: err.message });
   }
 });
+
+// GET /jobs/recent - Mendapatkan 3 job terbaru yang paling baru ditambahkan
+
+
 
 // Semua route di bawah ini harus authenticated
 app.use(authenticate);
@@ -217,26 +482,22 @@ app.patch("/profile", async (req, res) => {
     const uid = req.user.uid;
     const data = {};
 
-    // Handle regular fields
-    ["fullName", "phoneNumber", "city", "linkedin", "github", "instagram", "portfolioSite"].forEach((field) => {
+    ["fullName", "phoneNumber", "city", "linkedin", "github", "instagram", "portfolioSite", "username", "status"].forEach((field) => {
       if (req.body[field] !== undefined) {
         data[field] = req.body[field];
       }
     });
 
-    // Handle base64 photo if exists (save as photoUrl)
     if (req.body.photoUrl) {
-      // Validate base64 image format
       const matches = req.body.photoUrl.match(/^data:image\/([a-zA-Z]+);base64,(.+)$/);
       if (!matches || matches.length !== 3) {
         return res.status(400).json({ error: "Invalid base64 image format" });
       }
 
-      const imageType = matches[1]; // jpeg, png, etc.
-      const base64Data = matches[2]; // data after prefix
+      const imageType = matches[1];
+      const base64Data = matches[2];
       const imageBuffer = Buffer.from(base64Data, "base64");
 
-      // Validate file size (max 5MB)
       if (imageBuffer.length > 5 * 1024 * 1024) {
         return res.status(400).json({ error: "Image too large (max 5MB)" });
       }
@@ -244,7 +505,6 @@ app.patch("/profile", async (req, res) => {
       const fileName = `profile-photos/${uid}-${Date.now()}.${imageType}`;
       const file = bucket.file(fileName);
 
-      // Upload to Firebase Storage
       await file.save(imageBuffer, {
         metadata: {
           contentType: `image/${imageType}`,
@@ -252,11 +512,9 @@ app.patch("/profile", async (req, res) => {
         public: true,
       });
 
-      // Get public URL
       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(fileName)}`;
       data.photoUrl = publicUrl;
 
-      // Delete old photo if exists
       const userDoc = await db
         .collection("users")
         .doc(uid)
@@ -271,7 +529,6 @@ app.patch("/profile", async (req, res) => {
           await bucket.file(oldFilePath).delete();
         } catch (err) {
           console.error("Error deleting old photo:", err);
-          // Don't stop process if delete fails
         }
       }
     }
@@ -280,7 +537,6 @@ app.patch("/profile", async (req, res) => {
       return res.status(400).json({ error: "No valid fields to update" });
     }
 
-    // Update subcollection user_personal/info
     await db.collection("users").doc(uid).collection("user_personal").doc("info").update(data);
 
     res.json({
@@ -296,6 +552,7 @@ app.patch("/profile", async (req, res) => {
     });
   }
 });
+
 
 app.delete("/profile/photo", async (req, res) => {
   try {
@@ -523,7 +780,7 @@ app.post("/experience", async (req, res) => {
     }
 
     // Validasi jenis pekerjaan
-    const validEmploymentTypes = ['full-time', 'part-time', 'freelance', 'internship'];
+    const validEmploymentTypes = ['full-time', 'part-time', 'freelance', 'internship','contract'];
     if (!validEmploymentTypes.includes(employmentType.toLowerCase())) {
       return res.status(400).json({ error: "Invalid employmentType. Valid options are: full-time, part-time, freelance, internship" });
     }
@@ -1147,38 +1404,33 @@ app.patch("/preferences", async (req, res) => {
 });
 
 
-app.post('/upload-document', async (req, res) => {
+app.post("/upload-document", async (req, res) => {
   try {
     const uid = req.user.uid;
     const base64String = req.body.file;
     const type = req.body.type; // e.g., "CV", "Certificate", etc.
+    const documentName = req.body.documentName; // <-- tambahkan ini
 
-    if (!base64String || !type) {
-      return res.status(400).json({ error: "File and type are required" });
+    if (!base64String || !type || !documentName) {
+      return res.status(400).json({ error: "File, type, and documentName are required" });
     }
 
-    // Decode the Base64 string
     const buffer = Buffer.from(base64String, 'base64');
-
-    const fileName = `documents/${uid}-${Date.now()}.pdf`; // Assuming PDF for simplicity
+    const fileName = `documents/${uid}-${Date.now()}.pdf`;
     const bucketFile = bucket.file(fileName);
 
-    // Upload to Firebase Storage
     await bucketFile.save(buffer, {
-      metadata: {
-        contentType: 'application/pdf' // Adjust content type as needed
-      },
-      public: true // Make it publicly accessible
+      metadata: { contentType: 'application/pdf' },
+      public: true
     });
 
-    // Get the public URL
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(fileName)}`;
 
-    // Save the document details in Firestore
     const documentData = {
+      documentName,    // simpan documentName
       type,
       fileUrl: publicUrl,
-      uploadedAt: FieldValue.serverTimestamp() // Use server timestamp
+      uploadedAt: FieldValue.serverTimestamp()
     };
 
     const documentRef = db.collection("users").doc(uid).collection("documents").doc();
@@ -1187,7 +1439,8 @@ app.post('/upload-document', async (req, res) => {
     res.json({
       message: "Document uploaded successfully",
       documentId: documentRef.id,
-      fileUrl: publicUrl
+      fileUrl: publicUrl,
+      documentName
     });
   } catch (err) {
     console.error("Error uploading document:", err);
@@ -1195,33 +1448,16 @@ app.post('/upload-document', async (req, res) => {
   }
 });
 
-app.patch('/upload-document', async (req, res) => {
+app.patch("/upload-document/:documentId", async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { documentId, base64String, type } = req.body;
+    const documentId = req.params.documentId;
+    const { base64String, type, documentName } = req.body;
 
-    if (!documentId || !base64String || !type) {
-      return res.status(400).json({ error: "documentId, file and type are required" });
+    if (!documentId) {
+      return res.status(400).json({ error: "documentId is required in URL" });
     }
 
-    // Decode the Base64 string
-    const buffer = Buffer.from(base64String, 'base64');
-
-    const fileName = `documents/${uid}-${Date.now()}.pdf`; // Assuming PDF for simplicity
-    const bucketFile = bucket.file(fileName);
-
-    // Upload to Firebase Storage
-    await bucketFile.save(buffer, {
-      metadata: {
-        contentType: 'application/pdf' // Adjust content type as needed
-      },
-      public: true // Make it publicly accessible
-    });
-
-    // Get the public URL
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(fileName)}`;
-
-    // Update the document details in Firestore
     const documentRef = db.collection("users").doc(uid).collection("documents").doc(documentId);
     const documentSnap = await documentRef.get();
 
@@ -1229,19 +1465,46 @@ app.patch('/upload-document', async (req, res) => {
       return res.status(404).json({ error: "Document not found" });
     }
 
-    const updateData = {
-      type,
-      fileUrl: publicUrl,
-      updatedAt: FieldValue.serverTimestamp() // Use server timestamp
+    let updateData = {
+      updatedAt: FieldValue.serverTimestamp()
     };
 
-    // Update the document in Firestore
+    // Kalau ada base64String, upload file dulu dan update fileUrl
+    if (base64String) {
+      const buffer = Buffer.from(base64String, 'base64');
+      const fileName = `documents/${uid}-${Date.now()}.pdf`;
+      const bucketFile = bucket.file(fileName);
+
+      await bucketFile.save(buffer, {
+        metadata: { contentType: 'application/pdf' },
+        public: true
+      });
+
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(fileName)}`;
+      updateData.fileUrl = publicUrl;
+    }
+
+    // Kalau ada type, update type
+    if (type) {
+      updateData.type = type;
+    }
+
+    // Kalau ada documentName, update documentName
+    if (documentName) {
+      updateData.documentName = documentName;
+    }
+
+    // Kalau gak ada field apapun yang mau diupdate
+    if (Object.keys(updateData).length === 1) { // cuma updatedAt aja
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+
     await documentRef.update(updateData);
 
     res.json({
       message: "Document updated successfully",
       documentId: documentRef.id,
-      fileUrl: publicUrl
+      ...updateData
     });
 
   } catch (err) {
@@ -1249,6 +1512,7 @@ app.patch('/upload-document', async (req, res) => {
     res.status(500).json({ error: "Failed to update document", details: err.message });
   }
 });
+
 
 app.get("/upload-document", async (req, res) => {
   try {
@@ -1263,6 +1527,7 @@ app.get("/upload-document", async (req, res) => {
 
     const documents = snapshot.docs.map(doc => ({
       id: doc.id,
+      documentName: doc.data().documentName,  // sertakan documentName di response
       ...doc.data(),
     }));
 
@@ -1273,6 +1538,7 @@ app.get("/upload-document", async (req, res) => {
     res.status(500).json({ error: "Failed to get documents", details: err.message });
   }
 });
+
 
 app.delete("/upload-document/:documentId", async (req, res) => {
   try {
@@ -1564,6 +1830,30 @@ app.get("/applications", async (req, res) => {
   } catch (err) {
     console.error("Error getting applications:", err);
     res.status(500).json({ error: "Failed to get applications", details: err.message });
+  }
+});
+
+app.get("/applications/:applicationId", async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { applicationId } = req.params;
+
+    if (!applicationId) {
+      return res.status(400).json({ error: "Missing applicationId" });
+    }
+
+    const appRef = db.collection("users").doc(userId).collection("applications").doc(applicationId);
+    const doc = await appRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Application not found" });
+    }
+
+    res.status(200).json({ application: { id: doc.id, ...doc.data() } });
+
+  } catch (err) {
+    console.error("Error getting application detail:", err);
+    res.status(500).json({ error: "Failed to get application details", details: err.message });
   }
 });
 

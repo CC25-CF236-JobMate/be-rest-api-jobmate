@@ -3,3 +3,6 @@ REST API Backend for JobMate — built with Express.js to handle core functional
 
 # link deploy api
 https://jobseeker-capstone-705829099986.asia-southeast2.run.app
+
+# Link Published Postman
+https://documenter.getpostman.com/view/36349178/2sB2qfAJyP

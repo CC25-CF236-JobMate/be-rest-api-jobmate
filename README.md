@@ -98,6 +98,4 @@ To access protected endpoints, you need to obtain a bearer token first.
 3. **API Documentation:** Refer to the [Postman documentation](https://documenter.getpostman.com/view/36349178/2sB2qfAJyP) for detailed endpoint specifications
 4. **Authorization:** Include the bearer token in your request headers for protected endpoints
 
-## 📞 Support
 
-For detailed API specifications, request/response examples, and testing, please refer to our comprehensive Postman documentation linked above.

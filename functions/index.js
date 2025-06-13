@@ -56,6 +56,7 @@ function cleanDescription(description) {
   return description.replace(/[^a-zA-Z0-9\s]/g, "").toLowerCase();
 }
 
+
 // POST /companies - tambah company baru
 app.post("/companies", async (req, res) => {
   try {
@@ -619,6 +620,19 @@ app.post("/education", async (req, res) => {
         }
     }
 
+    // Cek apakah pendidikan dengan kombinasi level, institution, dan major sudah ada
+    const existingEducationSnapshot = await db.collection("users")
+      .doc(uid)
+      .collection("education")
+      .where("level", "==", level)
+      .where("institution", "==", institution)
+      .where("major", "==", major)
+      .get();
+
+    if (!existingEducationSnapshot.empty) {
+      return res.status(409).json({ error: "Education with the same level, institution, and major already exists" });
+    }
+
     // Data pendidikan yang akan disimpan
     const educationData = {
       level,
@@ -663,6 +677,23 @@ app.patch("/education/:id", async (req, res) => {
     const existingData = educationDoc.data();
     const updateData = {};
 
+    // Periksa apakah ada data lain yang memiliki kombinasi level, institution, major yang sama
+    if (level || institution || major) {
+      const query = db.collection("users")
+        .doc(uid)
+        .collection("education")
+        .where("level", "==", level || existingData.level)
+        .where("institution", "==", institution || existingData.institution)
+        .where("major", "==", major || existingData.major);
+
+      const snapshot = await query.get();
+
+      // Jika ada data yang sama, selain dokumen yang sedang diubah
+      if (!snapshot.empty && snapshot.docs.some(doc => doc.id !== educationId)) {
+        return res.status(409).json({ error: "Education with the same level, institution, and major already exists" });
+      }
+    }
+
     let effectiveStartDate = existingData.startDate;
     let effectiveEndDate = existingData.endDate; // Bisa null
 
@@ -695,7 +726,6 @@ app.patch("/education/:id", async (req, res) => {
         // Untuk saat ini, asumsikan startDate selalu ada jika endDate ada, kecuali endDate di-set null
     }
 
-
     if (level !== undefined) updateData.level = level;
     if (institution !== undefined) updateData.institution = institution;
     if (major !== undefined) updateData.major = major;
@@ -720,6 +750,7 @@ app.patch("/education/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to update education", details: err.message });
   }
 });
+
 
 app.get("/education", async (req, res) => {
   try {
@@ -768,7 +799,6 @@ app.delete("/education/:id", async (req, res) => {
   }
 });
 
-
 app.post("/experience", async (req, res) => {
   try {
     const uid = req.user.uid; // Asumsikan req.user.uid sudah ada
@@ -780,7 +810,7 @@ app.post("/experience", async (req, res) => {
     }
 
     // Validasi jenis pekerjaan
-    const validEmploymentTypes = ['full-time', 'part-time', 'freelance', 'internship','contract'];
+    const validEmploymentTypes = ['full-time', 'part-time', 'freelance', 'internship', 'contract'];
     if (!validEmploymentTypes.includes(employmentType.toLowerCase())) {
       return res.status(400).json({ error: "Invalid employmentType. Valid options are: full-time, part-time, freelance, internship" });
     }
@@ -792,16 +822,29 @@ app.post("/experience", async (req, res) => {
     }
 
     if (endDate) { // endDate bersifat opsional
-        const isValidEndDate = /^\d{4}-\d{2}-\d{2}$/.test(endDate);
-        if (!isValidEndDate) {
-          return res.status(400).json({ error: "Invalid endDate format. Use YYYY-MM-DD" });
-        }
-        // Validasi endDate tidak boleh sebelum startDate
-        const startDt = new Date(startDate);
-        const endDt = new Date(endDate);
-        if (endDt < startDt) {
-          return res.status(400).json({ error: "endDate cannot be earlier than startDate" });
-        }
+      const isValidEndDate = /^\d{4}-\d{2}-\d{2}$/.test(endDate);
+      if (!isValidEndDate) {
+        return res.status(400).json({ error: "Invalid endDate format. Use YYYY-MM-DD" });
+      }
+      // Validasi endDate tidak boleh sebelum startDate
+      const startDt = new Date(startDate);
+      const endDt = new Date(endDate);
+      if (endDt < startDt) {
+        return res.status(400).json({ error: "endDate cannot be earlier than startDate" });
+      }
+    }
+
+    // Cek apakah pengalaman dengan kombinasi position, company, startDate sudah ada
+    const existingExperienceSnapshot = await db.collection("users")
+      .doc(uid)
+      .collection("experience")
+      .where("position", "==", position)
+      .where("company", "==", company)
+      .where("startDate", "==", startDate)
+      .get();
+
+    if (!existingExperienceSnapshot.empty) {
+      return res.status(409).json({ error: "Experience with the same position, company, and startDate already exists" });
     }
 
     // Data pengalaman yang akan disimpan
@@ -885,6 +928,23 @@ app.patch("/experience/:id", async (req, res) => {
       updateData.employmentType = employmentType.toLowerCase();
     }
 
+    // Cek apakah pengalaman dengan kombinasi position, company, startDate sudah ada
+    if (position || company || startDate) {
+      const query = db.collection("users")
+        .doc(uid)
+        .collection("experience")
+        .where("position", "==", position || existingData.position)
+        .where("company", "==", company || existingData.company)
+        .where("startDate", "==", startDate || existingData.startDate);
+
+      const snapshot = await query.get();
+
+      // Jika ada data yang sama, selain dokumen yang sedang diubah
+      if (!snapshot.empty && snapshot.docs.some(doc => doc.id !== experienceId)) {
+        return res.status(409).json({ error: "Experience with the same position, company, and startDate already exists" });
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       return res.status(200).json({ message: "No fields to update", experience: existingData });
     }
@@ -904,6 +964,7 @@ app.patch("/experience/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to update experience", details: err.message });
   }
 });
+
 
 app.get("/experience", async (req, res) => {
   try {
@@ -980,11 +1041,18 @@ app.post("/hard-skills", async (req, res) => {
     const batch = db.batch();
     const addedSkills = [];
 
+    // Cek apakah skill yang sama sudah ada
     for (const skill of skills) {
       if (!skill.name || !skill.level) {
-        // If one skill is invalid, we might choose to stop or skip. Here, we stop.
         return res.status(400).json({ error: "Each hard skill must have a name and level" });
       }
+
+      // Cek jika skill dengan nama yang sama sudah ada di koleksi hard-skills
+      const existingSkillSnapshot = await hardSkillsCol.where("name", "==", skill.name).get();
+      if (!existingSkillSnapshot.empty) {
+        return res.status(409).json({ error: `Hard skill with name '${skill.name}' already exists` });
+      }
+
       const newSkillRef = hardSkillsCol.doc(); // Auto-generate ID
       batch.set(newSkillRef, { 
         name: skill.name, 
@@ -1001,6 +1069,7 @@ app.post("/hard-skills", async (req, res) => {
     res.status(500).json({ error: "Failed to add hard skills", details: err.message });
   }
 });
+
 
 // PATCH /hard-skills - update hard skill yang sudah ada berdasarkan id (bisa banyak sekaligus)
 app.patch("/hard-skills", async (req, res) => {
@@ -1104,10 +1173,18 @@ app.post("/soft-skills", async (req, res) => {
     const batch = db.batch();
     const addedSkills = [];
 
+    // Cek apakah skill yang sama sudah ada
     for (const skill of skills) {
       if (!skill.name || !skill.level) {
         return res.status(400).json({ error: "Each soft skill must have a name and level" });
       }
+
+      // Cek jika skill dengan nama yang sama sudah ada di koleksi soft-skills
+      const existingSkillSnapshot = await softSkillsCol.where("name", "==", skill.name).get();
+      if (!existingSkillSnapshot.empty) {
+        return res.status(409).json({ error: `Soft skill with name '${skill.name}' already exists` });
+      }
+
       const newSkillRef = softSkillsCol.doc(); // Auto-generate ID
       batch.set(newSkillRef, { 
         name: skill.name, 
@@ -1124,6 +1201,7 @@ app.post("/soft-skills", async (req, res) => {
     res.status(500).json({ error: "Failed to add soft skills", details: err.message });
   }
 });
+
 
 // PATCH /soft-skills - update soft skill yang sudah ada berdasarkan id (bisa banyak sekaligus)
 app.patch("/soft-skills", async (req, res) => {
@@ -1202,7 +1280,13 @@ app.post("/portfolio", async (req, res) => {
     }
 
     const portfolioRef = db.collection("users").doc(uid).collection("portfolio");
-    
+
+    // Cek apakah project dengan title yang sama sudah ada
+    const existingProjectSnapshot = await portfolioRef.where("title", "==", title).get();
+    if (!existingProjectSnapshot.empty) {
+      return res.status(409).json({ error: `Portfolio project with title '${title}' already exists` });
+    }
+
     const newProject = {
       title,
       description: description || "",
@@ -1239,8 +1323,23 @@ app.patch("/portfolio/:id", async (req, res) => {
       return res.status(404).json({ error: "Portfolio project not found" });
     }
 
+    const existingData = projectDoc.data();
     const updateData = {};
-    if (title !== undefined) updateData.title = title;
+
+    // Cek jika title diupdate, apakah ada project lain dengan title yang sama
+    if (title !== undefined && title !== existingData.title) {
+      const existingProjectSnapshot = await db.collection("users")
+        .doc(uid)
+        .collection("portfolio")
+        .where("title", "==", title)
+        .get();
+
+      if (!existingProjectSnapshot.empty) {
+        return res.status(409).json({ error: `Portfolio project with title '${title}' already exists` });
+      }
+      updateData.title = title;
+    }
+
     if (description !== undefined) updateData.description = description;
     if (projectUrl !== undefined) updateData.projectUrl = projectUrl;
     if (technologies !== undefined && Array.isArray(technologies)) updateData.technologies = technologies;
@@ -1257,6 +1356,7 @@ app.patch("/portfolio/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to update portfolio project", details: err.message });
   }
 });
+
 
 // GET /portfolio - ambil semua project portfolio user
 app.get("/portfolio", async (req, res) => {
@@ -1313,7 +1413,7 @@ app.post("/preferences", async (req, res) => {
       return res.status(400).json({ error: "jobCategories, locations, and jobTypes must be arrays" });
     }
 
-    const validJobTypes = ["Remote", "On-site", "Hybrid"];
+    const validJobTypes = ["Full-Time","Part-Time","Contract","Internship","Remote"];
     for (const jobType of jobTypes) {
       if (!validJobTypes.includes(jobType)) {
         return res.status(400).json({ error: `Invalid jobType value. Valid options are: ${validJobTypes.join(", ")}` });
@@ -1373,7 +1473,7 @@ app.patch("/preferences", async (req, res) => {
       return res.status(400).json({ error: "jobCategories, locations, and jobTypes must be arrays" });
     }
 
-    const validJobTypes = ["Remote", "On-site", "Hybrid"];
+    const validJobTypes = ["Full-Time","Part-Time","Contract","Internship","Remote"];
     for (const jobType of jobTypes) {
       if (!validJobTypes.includes(jobType)) {
         return res.status(400).json({ error: `Invalid jobType value. Valid options are: ${validJobTypes.join(", ")}` });
